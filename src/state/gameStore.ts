@@ -61,6 +61,8 @@ interface GameStore {
   connectPlaceToTransition: (placeId: string, transitionId: string, asInput: boolean) => void;
   disconnectPlaceFromTransition: (placeId: string, transitionId: string) => void;
   updatePlaceTokens: (placeId: string, tokens: number) => void;
+  moveNodePosition: (node: SelectedNode, position: { x: number; y: number }) => void;
+  getNextNodePosition: () => { x: number; y: number };
 
   // Actions - Simulation
   runTick: () => void;
@@ -261,6 +263,88 @@ export const useGameStore = create<GameStore>()(
             },
           };
         });
+      },
+
+      moveNodePosition: (node, position) => {
+        if (!node) return;
+
+        set(state => {
+          if (node.type === 'place') {
+            const place = state.factory.places[node.id];
+            if (!place) return state;
+            return {
+              factory: {
+                ...state.factory,
+                places: {
+                  ...state.factory.places,
+                  [node.id]: { ...place, position },
+                },
+              },
+            };
+          } else {
+            const transition = state.factory.transitions[node.id];
+            if (!transition) return state;
+            return {
+              factory: {
+                ...state.factory,
+                transitions: {
+                  ...state.factory.transitions,
+                  [node.id]: { ...transition, position },
+                },
+              },
+            };
+          }
+        });
+      },
+
+      getNextNodePosition: () => {
+        const state = get();
+        const places = Object.values(state.factory.places);
+        const transitions = Object.values(state.factory.transitions);
+        const allNodes = [...places, ...transitions];
+
+        // Grid-based placement: find next empty grid slot
+        const gridSize = 50;
+        const occupied = new Set(
+          allNodes.map(n => `${Math.round(n.position.x / gridSize)},${Math.round(n.position.y / gridSize)}`)
+        );
+
+        // Start from (2,2) and spiral outward
+        const startX = 2;
+        const startY = 2;
+        let x = startX;
+        let y = startY;
+        let dx = 1;
+        let dy = 0;
+        let stepsInDirection = 1;
+        let stepsTaken = 0;
+        let directionChanges = 0;
+
+        for (let i = 0; i < 200; i++) {
+          const key = `${x},${y}`;
+          if (!occupied.has(key)) {
+            return { x: x * gridSize, y: y * gridSize };
+          }
+
+          x += dx;
+          y += dy;
+          stepsTaken++;
+
+          if (stepsTaken >= stepsInDirection) {
+            stepsTaken = 0;
+            // Rotate direction: right -> down -> left -> up
+            const temp = dx;
+            dx = -dy;
+            dy = temp;
+            directionChanges++;
+            if (directionChanges % 2 === 0) {
+              stepsInDirection++;
+            }
+          }
+        }
+
+        // Fallback
+        return { x: 100, y: 100 };
       },
 
       // Simulation Actions

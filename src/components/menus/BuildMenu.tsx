@@ -15,6 +15,7 @@ export function BuildMenu({ onClose }: BuildMenuProps) {
   const unlockedRecipes = useGameStore(state => state.unlockedRecipes);
   const addPlaceToFactory = useGameStore(state => state.addPlaceToFactory);
   const addTransitionToFactory = useGameStore(state => state.addTransitionToFactory);
+  const getNextNodePosition = useGameStore(state => state.getNextNodePosition);
 
   const ingredients = getResourcesByCategory('ingredient');
   const modifiers = getResourcesByCategory('modifier');
@@ -25,17 +26,14 @@ export function BuildMenu({ onClose }: BuildMenuProps) {
   );
 
   const handleAddPlace = (resourceType: string) => {
-    // Add at center with slight random offset
-    const x = 200 + Math.random() * 100 - 50;
-    const y = 200 + Math.random() * 100 - 50;
-    addPlaceToFactory(resourceType, { x, y });
+    const position = getNextNodePosition();
+    addPlaceToFactory(resourceType, position);
     onClose();
   };
 
   const handleAddTransition = (recipeId: string) => {
-    const x = 200 + Math.random() * 100 - 50;
-    const y = 200 + Math.random() * 100 - 50;
-    addTransitionToFactory(recipeId, { x, y });
+    const position = getNextNodePosition();
+    addTransitionToFactory(recipeId, position);
     onClose();
   };
 
