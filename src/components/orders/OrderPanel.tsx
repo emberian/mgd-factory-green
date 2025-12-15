@@ -3,47 +3,52 @@ import { CHARACTERS } from '../../data/characters';
 import { RESOURCES } from '../../data/resources';
 
 export function OrderPanel() {
-  const activeOrders = useGameStore(state => state.activeOrders);
-  const completedOrderCount = useGameStore(state => state.completedOrderCount);
-  const currency = useGameStore(state => state.currency);
+  const orders = useGameStore(state => state.orders);
+  const phase = useGameStore(state => state.phase);
+  const tickCount = useGameStore(state => state.tickCount);
 
-  if (activeOrders.length === 0) {
-    return (
-      <div className="bg-forest-700 border-b border-forest-600 px-4 py-3">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-cream/60 text-sm">Orders: {completedOrderCount} completed</span>
-          <span className="text-sage font-medium">{currency}</span>
-        </div>
-        <p className="text-forest-500 text-sm text-center py-2">
-          No customers waiting...
-        </p>
-      </div>
-    );
-  }
+  const completedOrders = orders.filter(o => o.status === 'completed');
 
   return (
     <div className="bg-forest-700 border-b border-forest-600">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-forest-600">
-        <span className="text-cream/60 text-sm">
-          {activeOrders.length} order{activeOrders.length !== 1 ? 's' : ''} pending
+      {/* Summary bar */}
+      <div className="flex items-center justify-between px-4 py-1 border-b border-forest-600 text-xs">
+        <span className="text-cream/60">
+          Orders: {completedOrders.length}/{orders.length} complete
         </span>
-        <span className="text-sage font-medium">{currency}</span>
+        {phase === 'design' && (
+          <span className="text-sage">Plan your factory to serve all customers</span>
+        )}
       </div>
 
+      {/* Order cards */}
       <div className="flex gap-2 p-2 overflow-x-auto">
-        {activeOrders.map(order => {
+        {orders.map(order => {
           const character = CHARACTERS[order.characterId];
-          const urgencyPercent = order.timeLimit / 60;
+          const isActive = order.status === 'active';
+          const isCompleted = order.status === 'completed';
+          const isPending = order.status === 'pending';
+          const willArriveIn = order.arrivalTick - tickCount;
 
           return (
             <div
               key={order.id}
-              className="flex-none w-28 bg-forest-800 rounded-lg p-2 border border-forest-600"
+              className={`flex-none w-28 rounded-lg p-2 border transition-all ${
+                isCompleted
+                  ? 'bg-sage/20 border-sage/50'
+                  : isActive
+                  ? 'bg-forest-800 border-sage animate-pulse'
+                  : 'bg-forest-800/50 border-forest-600'
+              }`}
             >
               {/* Character */}
               <div className="flex items-center gap-1 mb-1">
-                <span className="text-xl">{character?.portrait ?? '?'}</span>
-                <span className="text-xs text-cream truncate">{character?.name ?? 'Unknown'}</span>
+                <span className={`text-xl ${isPending ? 'opacity-50' : ''}`}>
+                  {character?.portrait ?? '?'}
+                </span>
+                <span className={`text-xs truncate ${isCompleted ? 'text-sage' : isPending ? 'text-cream/40' : 'text-cream'}`}>
+                  {character?.name ?? 'Unknown'}
+                </span>
               </div>
 
               {/* Items */}
@@ -51,29 +56,27 @@ export function OrderPanel() {
                 {order.items.map((item, idx) => {
                   const resource = RESOURCES[item.resource];
                   return (
-                    <div key={idx} className="flex items-center gap-1 text-sm">
+                    <div key={idx} className={`flex items-center gap-1 text-sm ${isPending ? 'opacity-50' : ''}`}>
                       <span>{resource?.icon ?? '?'}</span>
-                      <span className="text-cream/80 truncate">{resource?.name ?? item.resource}</span>
-                      <span className="text-sage-light ml-auto">x{item.amount}</span>
+                      <span className={`truncate ${isCompleted ? 'text-sage line-through' : 'text-cream/80'}`}>
+                        {resource?.name ?? item.resource}
+                      </span>
                     </div>
                   );
                 })}
               </div>
 
-              {/* Timer bar */}
-              <div className="mt-2 h-1 bg-forest-600 rounded-full overflow-hidden">
-                <div
-                  className="h-full transition-all duration-1000"
-                  style={{
-                    width: `${Math.max(0, urgencyPercent * 100)}%`,
-                    backgroundColor: urgencyPercent > 0.5 ? '#5bb85b' : urgencyPercent > 0.25 ? '#d4a574' : '#b85b5b',
-                  }}
-                />
-              </div>
-
-              {/* Reward */}
-              <div className="mt-1 text-xs text-sage text-right">
-                +{order.reward}
+              {/* Status indicator */}
+              <div className="mt-2 text-xs">
+                {isCompleted ? (
+                  <span className="text-sage">+{order.reward}</span>
+                ) : isActive ? (
+                  <span className="text-amber-warm">Waiting...</span>
+                ) : phase === 'running' ? (
+                  <span className="text-cream/40">In {willArriveIn} ticks</span>
+                ) : (
+                  <span className="text-cream/40">Arrives tick {order.arrivalTick}</span>
+                )}
               </div>
             </div>
           );

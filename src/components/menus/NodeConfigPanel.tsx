@@ -181,10 +181,10 @@ export function NodeConfigPanel() {
           </div>
         </div>
 
-        {/* Cooldown status */}
-        {transition.cooldownRemaining > 0 && (
+        {/* Processing status */}
+        {transition.processingRemaining > 0 && (
           <div className="mb-3 text-sm text-amber-warm">
-            Processing... ({transition.cooldownRemaining} ticks remaining)
+            Processing... ({transition.processingRemaining} ticks remaining)
           </div>
         )}
 

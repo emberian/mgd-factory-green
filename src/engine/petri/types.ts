@@ -31,13 +31,15 @@ export interface Place {
 /**
  * A Transition transforms inputs into outputs.
  * In factory terms: a recipe station that consumes ingredients to produce drinks.
+ *
+ * Processing flow: idle -> processing (inputs consumed) -> idle (outputs produced)
  */
 export interface Transition {
   id: string;
   recipeId: string;
   inputs: Record<string, number>;   // placeId -> required token count
   outputs: Record<string, number>;  // placeId -> produced token count
-  cooldownRemaining: number;        // Ticks until can fire again
+  processingRemaining: number;      // Ticks until outputs are produced (0 = idle)
   position: Position;
 }
 
@@ -114,9 +116,38 @@ export interface Order {
   id: string;
   characterId: string;
   items: OrderItem[];
-  timeLimit: number;     // Ticks remaining before order expires
+  status: 'pending' | 'active' | 'completed' | 'failed';
+  arrivalTick: number;   // When this order becomes active (in run phase)
   reward: number;        // Currency earned on completion
-  createdAt: number;     // Tick when order was created
+}
+
+// ============================================
+// Level & Phase Types
+// ============================================
+
+/** Game phase */
+export type GamePhase = 'design' | 'running' | 'complete';
+
+/**
+ * A planned order in a level (known during design phase).
+ */
+export interface PlannedOrder {
+  characterId: string;
+  items: OrderItem[];
+  arrivalTick: number;   // When customer arrives during run phase
+}
+
+/**
+ * A level defines the challenge.
+ */
+export interface Level {
+  id: string;
+  name: string;
+  description: string;
+  orders: PlannedOrder[];
+  startingIngredients: Record<ResourceType, number>;
+  targetScore: number;   // Currency to earn for 3 stars
+  availableRecipes: string[];  // Recipe IDs available for this level
 }
 
 /**

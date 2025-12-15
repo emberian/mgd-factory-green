@@ -12,7 +12,7 @@ type BuildTab = 'places' | 'transitions';
 export function BuildMenu({ onClose }: BuildMenuProps) {
   const [activeTab, setActiveTab] = useState<BuildTab>('places');
 
-  const unlockedRecipes = useGameStore(state => state.unlockedRecipes);
+  const currentLevel = useGameStore(state => state.currentLevel);
   const addPlaceToFactory = useGameStore(state => state.addPlaceToFactory);
   const addTransitionToFactory = useGameStore(state => state.addTransitionToFactory);
   const getNextNodePosition = useGameStore(state => state.getNextNodePosition);
@@ -21,8 +21,10 @@ export function BuildMenu({ onClose }: BuildMenuProps) {
   const modifiers = getResourcesByCategory('modifier');
   const drinks = getResourcesByCategory('drink');
 
+  // Filter recipes by what's available in the current level
+  const levelRecipeIds = currentLevel?.availableRecipes ?? [];
   const availableRecipes = Object.values(RECIPES).filter(
-    r => r.unlocked || unlockedRecipes.includes(r.id)
+    r => levelRecipeIds.includes(r.id)
   );
 
   const handleAddPlace = (resourceType: string) => {

@@ -8,15 +8,14 @@ import type {
 import { getRecipe } from '../../data/recipes';
 
 /**
- * Check if a transition can fire (all inputs have required tokens,
- * all outputs have capacity).
+ * Check if a transition can start processing (is idle, has inputs, outputs have space).
  */
-export function canFire(
+export function canStartProcessing(
   transition: Transition,
   places: Record<string, Place>
 ): boolean {
-  // Check cooldown
-  if (transition.cooldownRemaining > 0) {
+  // Must be idle (not currently processing)
+  if (transition.processingRemaining > 0) {
     return false;
   }
 
@@ -43,10 +42,9 @@ export function canFire(
 }
 
 /**
- * Fire a transition: consume inputs, produce outputs, set cooldown.
- * Returns the mutated graph and events.
+ * Start processing: consume inputs and begin countdown.
  */
-export function fireTransition(
+export function startProcessing(
   graph: FactoryGraph,
   transitionId: string
 ): { graph: FactoryGraph; events: SimulationEvent[] } {
@@ -73,6 +71,26 @@ export function fireTransition(
     }
   }
 
+  // Start processing countdown
+  transition.processingRemaining = recipe?.duration ?? 1;
+
+  return { graph, events };
+}
+
+/**
+ * Complete processing: produce outputs.
+ */
+export function completeProcessing(
+  graph: FactoryGraph,
+  transitionId: string
+): { graph: FactoryGraph; events: SimulationEvent[] } {
+  const transition = graph.transitions[transitionId];
+  if (!transition) {
+    return { graph, events: [] };
+  }
+
+  const events: SimulationEvent[] = [];
+
   // Produce outputs
   for (const [placeId, amount] of Object.entries(transition.outputs)) {
     const place = graph.places[placeId];
@@ -88,9 +106,6 @@ export function fireTransition(
     }
   }
 
-  // Set cooldown
-  transition.cooldownRemaining = recipe?.duration ?? 1;
-
   events.push({
     type: 'transition_fired',
     transitionId,
@@ -102,27 +117,32 @@ export function fireTransition(
 
 /**
  * Execute one tick of the simulation.
- * - Decrement cooldowns
- * - Fire all enabled transitions
+ *
+ * Processing model:
+ * 1. Decrement processing counters
+ * 2. Complete any transitions that finished processing (produce outputs)
+ * 3. Start processing on idle transitions that have inputs ready
  */
 export function tick(graph: FactoryGraph): { graph: FactoryGraph; events: SimulationEvent[] } {
   const allEvents: SimulationEvent[] = [];
 
-  // Decrement cooldowns
+  // Step 1 & 2: Decrement counters and complete finished transitions
   for (const transition of Object.values(graph.transitions)) {
-    if (transition.cooldownRemaining > 0) {
-      transition.cooldownRemaining--;
+    if (transition.processingRemaining > 0) {
+      transition.processingRemaining--;
+
+      // If just finished, produce outputs
+      if (transition.processingRemaining === 0) {
+        const { events } = completeProcessing(graph, transition.id);
+        allEvents.push(...events);
+      }
     }
   }
 
-  // Find and fire all enabled transitions
-  // Note: We fire all that can fire in a single tick (parallel execution)
-  const firingOrder = Object.keys(graph.transitions);
-
-  for (const transitionId of firingOrder) {
-    const transition = graph.transitions[transitionId];
-    if (transition && canFire(transition, graph.places)) {
-      const { events } = fireTransition(graph, transitionId);
+  // Step 3: Start processing on idle transitions with available inputs
+  for (const transition of Object.values(graph.transitions)) {
+    if (canStartProcessing(transition, graph.places)) {
+      const { events } = startProcessing(graph, transition.id);
       allEvents.push(...events);
     }
   }
@@ -174,7 +194,7 @@ export function addTransition(
 
 /**
  * Remove a place from the factory graph.
- * Also removes any transitions connected to it.
+ * Disconnects from transitions but doesn't delete them.
  */
 export function removePlace(
   graph: FactoryGraph,
@@ -182,19 +202,21 @@ export function removePlace(
 ): FactoryGraph {
   const { [placeId]: _, ...remainingPlaces } = graph.places;
 
-  // Remove transitions that reference this place
-  const remainingTransitions: Record<string, Transition> = {};
+  // Disconnect from transitions (don't delete them)
+  const updatedTransitions: Record<string, Transition> = {};
   for (const [tid, transition] of Object.entries(graph.transitions)) {
-    const usesPlace =
-      placeId in transition.inputs || placeId in transition.outputs;
-    if (!usesPlace) {
-      remainingTransitions[tid] = transition;
-    }
+    const { [placeId]: _in, ...remainingInputs } = transition.inputs;
+    const { [placeId]: _out, ...remainingOutputs } = transition.outputs;
+    updatedTransitions[tid] = {
+      ...transition,
+      inputs: remainingInputs,
+      outputs: remainingOutputs,
+    };
   }
 
   return {
     places: remainingPlaces,
-    transitions: remainingTransitions,
+    transitions: updatedTransitions,
   };
 }
 

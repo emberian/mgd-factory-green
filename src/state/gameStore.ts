@@ -8,6 +8,8 @@ import type {
   ResourceType,
   SimulationEvent,
   SelectedNode,
+  GamePhase,
+  Level,
 } from '../engine/petri/types';
 import {
   createEmptyGraph,
@@ -20,14 +22,19 @@ import {
   countResourceInFactory,
 } from '../engine/petri/simulation';
 import { getRecipe } from '../data/recipes';
-import { CHARACTERS } from '../data/characters';
 import { RESOURCES } from '../data/resources';
+import { LEVELS, getLevelByIndex } from '../data/levels';
 
 // ============================================
 // Store Interface
 // ============================================
 
 interface GameStore {
+  // Level & Phase
+  currentLevelIndex: number;
+  currentLevel: Level | null;
+  phase: GamePhase;
+
   // Factory State
   factory: FactoryGraph;
 
@@ -36,13 +43,11 @@ interface GameStore {
   globalInventory: Record<ResourceType, number>;
 
   // Orders
-  activeOrders: Order[];
-  completedOrderCount: number;
-  failedOrderCount: number;
+  orders: Order[];  // All orders for current level
+  levelScore: number;
 
   // Progression
-  unlockedRecipes: string[];
-  unlockedCharacters: string[];
+  unlockedLevels: number;  // Highest unlocked level index
 
   // Simulation
   tickCount: number;
@@ -52,6 +57,12 @@ interface GameStore {
 
   // UI State
   selectedNode: SelectedNode;
+
+  // Actions - Level
+  loadLevel: (levelIndex: number) => void;
+  startRun: () => void;
+  resetLevel: () => void;
+  completeLevel: () => void;
 
   // Actions - Factory
   addPlaceToFactory: (resourceType: ResourceType, position: { x: number; y: number }) => string;
@@ -70,19 +81,10 @@ interface GameStore {
   setTickSpeed: (speed: number) => void;
 
   // Actions - Orders
-  generateOrder: () => void;
-  completeOrder: (orderId: string) => void;
-  failOrder: (orderId: string) => void;
   checkOrderCompletion: () => void;
 
   // Actions - Economy
-  addCurrency: (amount: number) => void;
-  spendCurrency: (amount: number) => boolean;
-  addToInventory: (resource: ResourceType, amount: number) => void;
   transferToFactory: (resource: ResourceType, placeId: string, amount: number) => boolean;
-
-  // Actions - Progression
-  unlockRecipe: (recipeId: string) => boolean;
 
   // Actions - UI
   selectNode: (node: SelectedNode) => void;
@@ -95,28 +97,32 @@ interface GameStore {
 // Initial State
 // ============================================
 
-const createInitialState = () => ({
-  factory: createEmptyGraph(),
-  currency: 100,
-  globalInventory: {
-    'tea-leaves': 10,
-    'coffee-beans': 10,
-    'milk': 5,
-    'sugar': 10,
-    'ice': 5,
-    'honey': 3,
-  } as Record<ResourceType, number>,
-  activeOrders: [],
-  completedOrderCount: 0,
-  failedOrderCount: 0,
-  unlockedRecipes: ['brew-green-tea', 'brew-espresso', 'make-sweet-tea'],
-  unlockedCharacters: ['fern', 'bramble', 'dewdrop', 'moss'],
-  tickCount: 0,
-  isPaused: true,
-  tickSpeed: 1000,
-  lastEvents: [],
-  selectedNode: null as SelectedNode,
-});
+const createInitialState = () => {
+  const firstLevel = LEVELS[0];
+  return {
+    currentLevelIndex: 0,
+    currentLevel: firstLevel,
+    phase: 'design' as GamePhase,
+    factory: createEmptyGraph(),
+    currency: 0,
+    globalInventory: { ...firstLevel.startingIngredients },
+    orders: firstLevel.orders.map((po, idx) => ({
+      id: `order_${idx}`,
+      characterId: po.characterId,
+      items: po.items,
+      status: 'pending' as const,
+      arrivalTick: po.arrivalTick,
+      reward: po.items.reduce((sum, item) => sum + (RESOURCES[item.resource]?.baseValue ?? 5) * 3, 0),
+    })),
+    levelScore: 0,
+    unlockedLevels: 0,
+    tickCount: 0,
+    isPaused: true,
+    tickSpeed: 500,
+    lastEvents: [],
+    selectedNode: null as SelectedNode,
+  };
+};
 
 // ============================================
 // Store Implementation
@@ -126,6 +132,60 @@ export const useGameStore = create<GameStore>()(
   persist(
     (set, get) => ({
       ...createInitialState(),
+
+      // Level Actions
+      loadLevel: (levelIndex) => {
+        const level = getLevelByIndex(levelIndex);
+        if (!level) return;
+
+        set({
+          currentLevelIndex: levelIndex,
+          currentLevel: level,
+          phase: 'design',
+          factory: createEmptyGraph(),
+          globalInventory: { ...level.startingIngredients },
+          orders: level.orders.map((po, idx) => ({
+            id: `order_${idx}`,
+            characterId: po.characterId,
+            items: po.items,
+            status: 'pending' as const,
+            arrivalTick: po.arrivalTick,
+            reward: po.items.reduce((sum, item) => sum + (RESOURCES[item.resource]?.baseValue ?? 5) * 3, 0),
+          })),
+          levelScore: 0,
+          tickCount: 0,
+          isPaused: true,
+          selectedNode: null,
+        });
+      },
+
+      startRun: () => {
+        set({
+          phase: 'running',
+          isPaused: false,
+          tickCount: 0,
+        });
+      },
+
+      resetLevel: () => {
+        const state = get();
+        if (state.currentLevel) {
+          get().loadLevel(state.currentLevelIndex);
+        }
+      },
+
+      completeLevel: () => {
+        const state = get();
+        const allCompleted = state.orders.every(o => o.status === 'completed');
+
+        set({
+          phase: 'complete',
+          isPaused: true,
+          unlockedLevels: allCompleted
+            ? Math.max(state.unlockedLevels, state.currentLevelIndex + 1)
+            : state.unlockedLevels,
+        });
+      },
 
       // Factory Actions
       addPlaceToFactory: (resourceType, position) => {
@@ -152,7 +212,7 @@ export const useGameStore = create<GameStore>()(
           recipeId,
           inputs: {},
           outputs: {},
-          cooldownRemaining: 0,
+          processingRemaining: 0,
           position,
         };
         set(state => ({
@@ -190,7 +250,6 @@ export const useGameStore = create<GameStore>()(
 
           const newTransition = { ...transition };
           if (asInput) {
-            // Find matching input requirement
             const inputReq = recipe.inputs.find(i => i.resource === place.resourceType);
             if (inputReq) {
               newTransition.inputs = {
@@ -199,7 +258,6 @@ export const useGameStore = create<GameStore>()(
               };
             }
           } else {
-            // Find matching output
             const outputReq = recipe.outputs.find(o => o.resource === place.resourceType);
             if (outputReq) {
               newTransition.outputs = {
@@ -303,13 +361,11 @@ export const useGameStore = create<GameStore>()(
         const transitions = Object.values(state.factory.transitions);
         const allNodes = [...places, ...transitions];
 
-        // Grid-based placement: find next empty grid slot
         const gridSize = 50;
         const occupied = new Set(
           allNodes.map(n => `${Math.round(n.position.x / gridSize)},${Math.round(n.position.y / gridSize)}`)
         );
 
-        // Start from (2,2) and spiral outward
         const startX = 2;
         const startY = 2;
         let x = startX;
@@ -332,7 +388,6 @@ export const useGameStore = create<GameStore>()(
 
           if (stepsTaken >= stepsInDirection) {
             stepsTaken = 0;
-            // Rotate direction: right -> down -> left -> up
             const temp = dx;
             dx = -dy;
             dy = temp;
@@ -343,40 +398,52 @@ export const useGameStore = create<GameStore>()(
           }
         }
 
-        // Fallback
         return { x: 100, y: 100 };
       },
 
       // Simulation Actions
       runTick: () => {
+        const state = get();
+        if (state.phase !== 'running') return;
+
         set(state => {
           const { graph, events } = simulateTick(state.factory);
 
-          // Decrement order time limits
-          const updatedOrders = state.activeOrders.map(order => ({
-            ...order,
-            timeLimit: order.timeLimit - 1,
-          }));
-
-          // Check for expired orders
-          const expiredOrders = updatedOrders.filter(o => o.timeLimit <= 0);
-          const activeOrders = updatedOrders.filter(o => o.timeLimit > 0);
+          // Activate orders that should arrive this tick
+          const updatedOrders = state.orders.map(order => {
+            if (order.status === 'pending' && order.arrivalTick <= state.tickCount) {
+              return { ...order, status: 'active' as const };
+            }
+            return order;
+          });
 
           return {
             factory: graph,
             tickCount: state.tickCount + 1,
             lastEvents: events,
-            activeOrders,
-            failedOrderCount: state.failedOrderCount + expiredOrders.length,
+            orders: updatedOrders,
           };
         });
 
         // Check order completion after tick
         get().checkOrderCompletion();
+
+        // Check if level is complete (all orders resolved)
+        const newState = get();
+        const allResolved = newState.orders.every(o => o.status === 'completed' || o.status === 'failed');
+        if (allResolved) {
+          get().completeLevel();
+        }
       },
 
       togglePause: () => {
-        set(state => ({ isPaused: !state.isPaused }));
+        const state = get();
+        if (state.phase === 'design') {
+          // Start run when unpausing from design
+          get().startRun();
+        } else if (state.phase === 'running') {
+          set(state => ({ isPaused: !state.isPaused }));
+        }
       },
 
       setTickSpeed: (speed) => {
@@ -384,60 +451,13 @@ export const useGameStore = create<GameStore>()(
       },
 
       // Order Actions
-      generateOrder: () => {
-        const state = get();
-        const availableCharacters = state.unlockedCharacters;
-        if (availableCharacters.length === 0) return;
-
-        const characterId = availableCharacters[Math.floor(Math.random() * availableCharacters.length)];
-        const character = CHARACTERS[characterId];
-        if (!character) return;
-
-        // Pick a random drink the character likes
-        const drink = character.preferredDrinks[
-          Math.floor(Math.random() * character.preferredDrinks.length)
-        ];
-
-        const order: Order = {
-          id: generateId('order'),
-          characterId,
-          items: [{ resource: drink, amount: 1 }],
-          timeLimit: Math.floor(60 * character.patience),
-          reward: (RESOURCES[drink]?.baseValue ?? 5) * 3,
-          createdAt: state.tickCount,
-        };
-
-        set(state => ({
-          activeOrders: [...state.activeOrders, order],
-        }));
-      },
-
-      completeOrder: (orderId) => {
-        set(state => {
-          const order = state.activeOrders.find(o => o.id === orderId);
-          if (!order) return state;
-
-          return {
-            activeOrders: state.activeOrders.filter(o => o.id !== orderId),
-            completedOrderCount: state.completedOrderCount + 1,
-            currency: state.currency + order.reward,
-          };
-        });
-      },
-
-      failOrder: (orderId) => {
-        set(state => ({
-          activeOrders: state.activeOrders.filter(o => o.id !== orderId),
-          failedOrderCount: state.failedOrderCount + 1,
-        }));
-      },
-
       checkOrderCompletion: () => {
         const state = get();
 
-        for (const order of state.activeOrders) {
-          let canComplete = true;
+        for (const order of state.orders) {
+          if (order.status !== 'active') continue;
 
+          let canComplete = true;
           for (const item of order.items) {
             const available = countResourceInFactory(state.factory, item.resource);
             if (available < item.amount) {
@@ -460,32 +480,19 @@ export const useGameStore = create<GameStore>()(
               }
             }
 
-            get().completeOrder(order.id);
+            // Mark order completed
+            set(state => ({
+              orders: state.orders.map(o =>
+                o.id === order.id ? { ...o, status: 'completed' as const } : o
+              ),
+              levelScore: state.levelScore + order.reward,
+              currency: state.currency + order.reward,
+            }));
           }
         }
       },
 
       // Economy Actions
-      addCurrency: (amount) => {
-        set(state => ({ currency: state.currency + amount }));
-      },
-
-      spendCurrency: (amount) => {
-        const state = get();
-        if (state.currency < amount) return false;
-        set({ currency: state.currency - amount });
-        return true;
-      },
-
-      addToInventory: (resource, amount) => {
-        set(state => ({
-          globalInventory: {
-            ...state.globalInventory,
-            [resource]: (state.globalInventory[resource] ?? 0) + amount,
-          },
-        }));
-      },
-
       transferToFactory: (resource, placeId, amount) => {
         const state = get();
         const place = state.factory.places[placeId];
@@ -517,24 +524,6 @@ export const useGameStore = create<GameStore>()(
         return true;
       },
 
-      // Progression Actions
-      unlockRecipe: (recipeId) => {
-        const state = get();
-        const recipe = getRecipe(recipeId);
-        if (!recipe || state.unlockedRecipes.includes(recipeId)) return false;
-        if (recipe.unlockCost && state.currency < recipe.unlockCost) return false;
-
-        if (recipe.unlockCost) {
-          set({ currency: state.currency - recipe.unlockCost });
-        }
-
-        set(state => ({
-          unlockedRecipes: [...state.unlockedRecipes, recipeId],
-        }));
-
-        return true;
-      },
-
       // UI Actions
       selectNode: (node) => {
         set({ selectedNode: node });
@@ -548,15 +537,9 @@ export const useGameStore = create<GameStore>()(
     {
       name: 'green-factory-save',
       partialize: (state) => ({
-        factory: state.factory,
         currency: state.currency,
-        globalInventory: state.globalInventory,
-        activeOrders: state.activeOrders,
-        completedOrderCount: state.completedOrderCount,
-        failedOrderCount: state.failedOrderCount,
-        unlockedRecipes: state.unlockedRecipes,
-        unlockedCharacters: state.unlockedCharacters,
-        tickCount: state.tickCount,
+        unlockedLevels: state.unlockedLevels,
+        currentLevelIndex: state.currentLevelIndex,
       }),
     }
   )

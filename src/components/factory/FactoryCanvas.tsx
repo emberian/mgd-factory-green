@@ -217,9 +217,9 @@ export function FactoryCanvas() {
         TRANSITION_SIZE
       );
 
-      // Cooldown indicator
-      if (transition.cooldownRemaining > 0 && recipe) {
-        const progress = 1 - transition.cooldownRemaining / recipe.duration;
+      // Processing indicator
+      if (transition.processingRemaining > 0 && recipe) {
+        const progress = 1 - transition.processingRemaining / recipe.duration;
         ctx.fillStyle = '#d4a574';
         ctx.fillRect(
           transition.position.x - TRANSITION_SIZE / 2 + 2,

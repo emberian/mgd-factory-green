@@ -7,11 +7,11 @@ interface RecipeBookProps {
 }
 
 export function RecipeBook({ onClose }: RecipeBookProps) {
-  const unlockedRecipes = useGameStore(state => state.unlockedRecipes);
-  const currency = useGameStore(state => state.currency);
-  const unlockRecipe = useGameStore(state => state.unlockRecipe);
+  const currentLevel = useGameStore(state => state.currentLevel);
 
+  // Show all recipes, highlight which are available in this level
   const recipes = Object.values(RECIPES);
+  const levelRecipeIds = currentLevel?.availableRecipes ?? [];
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50">
@@ -30,14 +30,13 @@ export function RecipeBook({ onClose }: RecipeBookProps) {
         {/* Recipe list */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {recipes.map(recipe => {
-            const isUnlocked = recipe.unlocked || unlockedRecipes.includes(recipe.id);
-            const canAfford = !recipe.unlockCost || currency >= recipe.unlockCost;
+            const isAvailable = levelRecipeIds.includes(recipe.id);
 
             return (
               <div
                 key={recipe.id}
                 className={`bg-forest-700 rounded-lg p-3 border ${
-                  isUnlocked ? 'border-forest-600' : 'border-forest-600/50 opacity-75'
+                  isAvailable ? 'border-sage/50' : 'border-forest-600/50 opacity-60'
                 }`}
               >
                 {/* Recipe header */}
@@ -47,18 +46,10 @@ export function RecipeBook({ onClose }: RecipeBookProps) {
                     <h3 className="text-cream font-medium">{recipe.name}</h3>
                     <p className="text-xs text-cream/60">{recipe.description}</p>
                   </div>
-                  {!isUnlocked && recipe.unlockCost && (
-                    <button
-                      onClick={() => unlockRecipe(recipe.id)}
-                      disabled={!canAfford}
-                      className={`px-3 py-1 rounded text-sm font-medium ${
-                        canAfford
-                          ? 'bg-sage text-forest-900 hover:bg-sage-light'
-                          : 'bg-forest-600 text-cream/40 cursor-not-allowed'
-                      }`}
-                    >
-                      {recipe.unlockCost}
-                    </button>
+                  {isAvailable && (
+                    <span className="px-2 py-0.5 bg-sage/20 text-sage text-xs rounded">
+                      Available
+                    </span>
                   )}
                 </div>
 
