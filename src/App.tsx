@@ -7,11 +7,25 @@ import { BuildMenu } from './components/menus/BuildMenu';
 import { NodeConfigPanel } from './components/menus/NodeConfigPanel';
 import { LevelComplete } from './components/menus/LevelComplete';
 import { InventoryPanel } from './components/menus/InventoryPanel';
+import { LevelSelect } from './components/menus/LevelSelect';
+import { Tutorial } from './components/menus/Tutorial';
+
+const TUTORIAL_SEEN_KEY = 'green-factory-tutorial-seen';
 
 function App() {
   const [showRecipes, setShowRecipes] = useState(false);
   const [showBuild, setShowBuild] = useState(false);
   const [showInventory, setShowInventory] = useState(false);
+  const [showLevelSelect, setShowLevelSelect] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(() => {
+    // Show tutorial on first launch
+    return !localStorage.getItem(TUTORIAL_SEEN_KEY);
+  });
+
+  const handleCloseTutorial = () => {
+    localStorage.setItem(TUTORIAL_SEEN_KEY, 'true');
+    setShowTutorial(false);
+  };
 
   const phase = useGameStore(state => state.phase);
   const currentLevel = useGameStore(state => state.currentLevel);
@@ -39,14 +53,29 @@ function App() {
       {/* Level Header */}
       <header className="flex-none bg-forest-700 px-4 py-2 border-b border-forest-600">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-sm font-semibold text-cream">{currentLevel?.name ?? 'Green Factory'}</h1>
+          <button
+            onClick={() => setShowLevelSelect(true)}
+            className="text-left hover:bg-forest-600/50 -m-1 p-1 rounded transition-colors"
+          >
+            <h1 className="text-sm font-semibold text-cream flex items-center gap-1">
+              {currentLevel?.name ?? 'Green Factory'}
+              <span className="text-cream/40 text-xs">▼</span>
+            </h1>
             <p className="text-xs text-cream/60">{currentLevel?.description}</p>
-          </div>
-          <div className="text-right">
-            <div className="text-sage font-medium">{levelScore}</div>
-            <div className="text-xs text-cream/40">
-              {phase === 'design' ? 'Design Phase' : phase === 'running' ? `Tick ${tickCount}` : 'Complete'}
+          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowTutorial(true)}
+              className="text-cream/40 hover:text-cream text-lg"
+              title="Help"
+            >
+              ?
+            </button>
+            <div className="text-right">
+              <div className="text-sage font-medium">{levelScore}</div>
+              <div className="text-xs text-cream/40">
+                {phase === 'design' ? 'Design Phase' : phase === 'running' ? `Tick ${tickCount}` : 'Complete'}
+              </div>
             </div>
           </div>
         </div>
@@ -135,6 +164,8 @@ function App() {
       {showRecipes && <RecipeBook onClose={() => setShowRecipes(false)} />}
       {showBuild && <BuildMenu onClose={() => setShowBuild(false)} />}
       {showInventory && <InventoryPanel onClose={() => setShowInventory(false)} />}
+      {showLevelSelect && <LevelSelect onClose={() => setShowLevelSelect(false)} />}
+      {showTutorial && <Tutorial onClose={handleCloseTutorial} />}
       {phase === 'complete' && <LevelComplete />}
     </div>
   );

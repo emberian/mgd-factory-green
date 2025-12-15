@@ -1,5 +1,6 @@
+import { useMemo } from 'react';
 import { useGameStore } from '../../state/gameStore';
-import { CHARACTERS } from '../../data/characters';
+import { CHARACTERS, getRandomFlavorText } from '../../data/characters';
 import { RESOURCES } from '../../data/resources';
 
 export function OrderPanel() {
@@ -8,6 +9,18 @@ export function OrderPanel() {
   const tickCount = useGameStore(state => state.tickCount);
 
   const completedOrders = orders.filter(o => o.status === 'completed');
+
+  // Generate stable flavor texts for each order (memoized by order IDs and statuses)
+  const flavorTexts = useMemo(() => {
+    const texts: Record<string, string> = {};
+    for (const order of orders) {
+      const type = order.status === 'completed' ? 'complete' : 'order';
+      texts[order.id] = getRandomFlavorText(order.characterId, type);
+    }
+    return texts;
+    // Only regenerate when order list changes or status changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders.map(o => `${o.id}:${o.status}`).join(',')]);
 
   return (
     <div className="bg-forest-700 border-b border-forest-600">
@@ -36,8 +49,10 @@ export function OrderPanel() {
               className={`flex-none w-28 rounded-lg p-2 border transition-all ${
                 isCompleted
                   ? 'bg-sage/20 border-sage/50'
+                  : order.status === 'failed'
+                  ? 'bg-red-900/20 border-red-400/50'
                   : isActive
-                  ? 'bg-forest-800 border-sage animate-pulse'
+                  ? 'bg-forest-800 border-amber-warm/70'
                   : 'bg-forest-800/50 border-forest-600'
               }`}
             >
@@ -50,6 +65,13 @@ export function OrderPanel() {
                   {character?.name ?? 'Unknown'}
                 </span>
               </div>
+
+              {/* Flavor text */}
+              {(isActive || isCompleted) && flavorTexts[order.id] && (
+                <p className={`text-xs italic mb-1 line-clamp-2 ${isCompleted ? 'text-sage/70' : 'text-cream/50'}`}>
+                  "{flavorTexts[order.id]}"
+                </p>
+              )}
 
               {/* Items */}
               <div className="space-y-1">
@@ -70,8 +92,14 @@ export function OrderPanel() {
               <div className="mt-2 text-xs">
                 {isCompleted ? (
                   <span className="text-sage">+{order.reward}</span>
+                ) : order.status === 'failed' ? (
+                  <span className="text-red-400">Expired!</span>
                 ) : isActive ? (
-                  <span className="text-amber-warm">Waiting...</span>
+                  (() => {
+                    const ticksLeft = order.deadlineTick - tickCount;
+                    const urgency = ticksLeft <= 5 ? 'text-red-400' : ticksLeft <= 10 ? 'text-amber-warm' : 'text-cream/60';
+                    return <span className={urgency}>{ticksLeft} ticks left</span>;
+                  })()
                 ) : phase === 'running' ? (
                   <span className="text-cream/40">In {willArriveIn} ticks</span>
                 ) : (

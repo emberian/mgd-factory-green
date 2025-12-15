@@ -200,12 +200,15 @@ export function removePlace(
   graph: FactoryGraph,
   placeId: string
 ): FactoryGraph {
-  const { [placeId]: _, ...remainingPlaces } = graph.places;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { [placeId]: _removed, ...remainingPlaces } = graph.places;
 
   // Disconnect from transitions (don't delete them)
   const updatedTransitions: Record<string, Transition> = {};
   for (const [tid, transition] of Object.entries(graph.transitions)) {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { [placeId]: _in, ...remainingInputs } = transition.inputs;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { [placeId]: _out, ...remainingOutputs } = transition.outputs;
     updatedTransitions[tid] = {
       ...transition,
@@ -227,7 +230,8 @@ export function removeTransition(
   graph: FactoryGraph,
   transitionId: string
 ): FactoryGraph {
-  const { [transitionId]: _, ...remainingTransitions } = graph.transitions;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { [transitionId]: _removed, ...remainingTransitions } = graph.transitions;
   return {
     ...graph,
     transitions: remainingTransitions,

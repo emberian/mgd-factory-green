@@ -9,7 +9,6 @@ export const RECIPES: Record<string, Recipe> = {
     inputs: [{ resource: 'tea-leaves', amount: 1 }],
     outputs: [{ resource: 'green-tea', amount: 1 }],
     duration: 3,
-    unlocked: true,
   },
   'brew-espresso': {
     id: 'brew-espresso',
@@ -19,7 +18,6 @@ export const RECIPES: Record<string, Recipe> = {
     inputs: [{ resource: 'coffee-beans', amount: 1 }],
     outputs: [{ resource: 'espresso', amount: 1 }],
     duration: 2,
-    unlocked: true,
   },
   'make-sweet-tea': {
     id: 'make-sweet-tea',
@@ -32,7 +30,6 @@ export const RECIPES: Record<string, Recipe> = {
     ],
     outputs: [{ resource: 'sweet-tea', amount: 1 }],
     duration: 2,
-    unlocked: true,
   },
   'make-latte': {
     id: 'make-latte',
@@ -45,8 +42,6 @@ export const RECIPES: Record<string, Recipe> = {
     ],
     outputs: [{ resource: 'latte', amount: 1 }],
     duration: 3,
-    unlocked: false,
-    unlockCost: 50,
   },
   'make-iced-tea': {
     id: 'make-iced-tea',
@@ -59,8 +54,6 @@ export const RECIPES: Record<string, Recipe> = {
     ],
     outputs: [{ resource: 'iced-tea', amount: 1 }],
     duration: 2,
-    unlocked: false,
-    unlockCost: 30,
   },
   'make-honey-tea': {
     id: 'make-honey-tea',
@@ -73,23 +66,9 @@ export const RECIPES: Record<string, Recipe> = {
     ],
     outputs: [{ resource: 'honey-tea', amount: 1 }],
     duration: 2,
-    unlocked: false,
-    unlockCost: 75,
   },
 };
 
 export const getRecipe = (id: string): Recipe | undefined => {
   return RECIPES[id];
-};
-
-export const getUnlockedRecipes = (unlockedIds: Set<string>): Recipe[] => {
-  return Object.values(RECIPES).filter(
-    r => r.unlocked || unlockedIds.has(r.id)
-  );
-};
-
-export const getLockedRecipes = (unlockedIds: Set<string>): Recipe[] => {
-  return Object.values(RECIPES).filter(
-    r => !r.unlocked && !unlockedIds.has(r.id)
-  );
 };

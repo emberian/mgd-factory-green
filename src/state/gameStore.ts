@@ -24,6 +24,29 @@ import {
 import { getRecipe } from '../data/recipes';
 import { RESOURCES } from '../data/resources';
 import { LEVELS, getLevelByIndex } from '../data/levels';
+import { CHARACTERS } from '../data/characters';
+
+// Base ticks an order stays active before failing (modified by character patience)
+const BASE_ORDER_PATIENCE = 20;
+
+// Helper to create orders with calculated deadlines
+const createOrdersFromLevel = (level: Level): Order[] => {
+  return level.orders.map((po, idx) => {
+    const character = CHARACTERS[po.characterId];
+    const patience = character?.patience ?? 1.0;
+    const deadline = po.arrivalTick + Math.round(BASE_ORDER_PATIENCE * patience);
+
+    return {
+      id: `order_${idx}`,
+      characterId: po.characterId,
+      items: po.items,
+      status: 'pending' as const,
+      arrivalTick: po.arrivalTick,
+      deadlineTick: deadline,
+      reward: po.items.reduce((sum, item) => sum + (RESOURCES[item.resource]?.baseValue ?? 5) * 3, 0),
+    };
+  });
+};
 
 // ============================================
 // Store Interface
@@ -106,14 +129,7 @@ const createInitialState = () => {
     factory: createEmptyGraph(),
     currency: 0,
     globalInventory: { ...firstLevel.startingIngredients },
-    orders: firstLevel.orders.map((po, idx) => ({
-      id: `order_${idx}`,
-      characterId: po.characterId,
-      items: po.items,
-      status: 'pending' as const,
-      arrivalTick: po.arrivalTick,
-      reward: po.items.reduce((sum, item) => sum + (RESOURCES[item.resource]?.baseValue ?? 5) * 3, 0),
-    })),
+    orders: createOrdersFromLevel(firstLevel),
     levelScore: 0,
     unlockedLevels: 0,
     tickCount: 0,
@@ -144,14 +160,7 @@ export const useGameStore = create<GameStore>()(
           phase: 'design',
           factory: createEmptyGraph(),
           globalInventory: { ...level.startingIngredients },
-          orders: level.orders.map((po, idx) => ({
-            id: `order_${idx}`,
-            characterId: po.characterId,
-            items: po.items,
-            status: 'pending' as const,
-            arrivalTick: po.arrivalTick,
-            reward: po.items.reduce((sum, item) => sum + (RESOURCES[item.resource]?.baseValue ?? 5) * 3, 0),
-          })),
+          orders: createOrdersFromLevel(level),
           levelScore: 0,
           tickCount: 0,
           isPaused: true,
@@ -284,7 +293,9 @@ export const useGameStore = create<GameStore>()(
           const transition = state.factory.transitions[transitionId];
           if (!transition) return state;
 
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
           const { [placeId]: _in, ...remainingInputs } = transition.inputs;
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
           const { [placeId]: _out, ...remainingOutputs } = transition.outputs;
 
           return {
@@ -408,18 +419,24 @@ export const useGameStore = create<GameStore>()(
 
         set(state => {
           const { graph, events } = simulateTick(state.factory);
+          const newTickCount = state.tickCount + 1;
 
-          // Activate orders that should arrive this tick
+          // Update order statuses: activate arriving orders, fail expired orders
           const updatedOrders = state.orders.map(order => {
+            // Activate orders that should arrive this tick
             if (order.status === 'pending' && order.arrivalTick <= state.tickCount) {
               return { ...order, status: 'active' as const };
+            }
+            // Fail orders that have expired
+            if (order.status === 'active' && newTickCount >= order.deadlineTick) {
+              return { ...order, status: 'failed' as const };
             }
             return order;
           });
 
           return {
             factory: graph,
-            tickCount: state.tickCount + 1,
+            tickCount: newTickCount,
             lastEvents: events,
             orders: updatedOrders,
           };

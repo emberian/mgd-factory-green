@@ -24,7 +24,8 @@ export function InventoryPanel({ onClose }: InventoryPanelProps) {
     });
   }
 
-  const inventoryItems = Object.entries(globalInventory).filter(([_, amount]) => amount > 0);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const inventoryItems = Object.entries(globalInventory).filter(([_key, amount]) => amount > 0);
 
   const handleTransfer = (resourceType: string) => {
     const places = placesByResource[resourceType];

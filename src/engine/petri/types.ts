@@ -79,8 +79,6 @@ export interface Recipe {
   inputs: RecipeInput[];
   outputs: RecipeOutput[];
   duration: number;      // Ticks to complete (cooldown after firing)
-  unlocked: boolean;
-  unlockCost?: number;   // Currency to unlock
 }
 
 // ============================================
@@ -118,6 +116,7 @@ export interface Order {
   items: OrderItem[];
   status: 'pending' | 'active' | 'completed' | 'failed';
   arrivalTick: number;   // When this order becomes active (in run phase)
+  deadlineTick: number;  // When this order expires if not completed
   reward: number;        // Currency earned on completion
 }
 
