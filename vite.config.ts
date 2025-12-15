@@ -3,5 +3,5 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  base: process.env.GITHUB_ACTIONS ? '/green-factory/' : '/',
+  base: process.env.GITHUB_ACTIONS ? '/mgd-green-factory/' : '/',
 })
