@@ -19,7 +19,6 @@ import {
   removeTransition,
   tick as simulateTick,
   generateId,
-  countResourceInFactory,
 } from '../engine/petri/simulation';
 import { getRecipe } from '../data/recipes';
 import { RESOURCES } from '../data/resources';
@@ -417,19 +416,16 @@ export const useGameStore = create<GameStore>()(
         const state = get();
         if (state.phase !== 'running') return;
 
+        const newTickCount = state.tickCount + 1;
+
+        // Step 1: Run simulation tick (produce outputs)
         set(state => {
           const { graph, events } = simulateTick(state.factory);
-          const newTickCount = state.tickCount + 1;
 
-          // Update order statuses: activate arriving orders, fail expired orders
-          const updatedOrders = state.orders.map(order => {
-            // Activate orders that should arrive this tick
+          // Activate orders that should arrive this tick (before completion check)
+          const ordersWithArrivals = state.orders.map(order => {
             if (order.status === 'pending' && order.arrivalTick <= state.tickCount) {
               return { ...order, status: 'active' as const };
-            }
-            // Fail orders that have expired
-            if (order.status === 'active' && newTickCount >= order.deadlineTick) {
-              return { ...order, status: 'failed' as const };
             }
             return order;
           });
@@ -438,12 +434,22 @@ export const useGameStore = create<GameStore>()(
             factory: graph,
             tickCount: newTickCount,
             lastEvents: events,
-            orders: updatedOrders,
+            orders: ordersWithArrivals,
           };
         });
 
-        // Check order completion after tick
+        // Step 2: Check order completion FIRST (before failing expired orders)
         get().checkOrderCompletion();
+
+        // Step 3: Now fail expired orders that weren't completed
+        set(state => ({
+          orders: state.orders.map(order => {
+            if (order.status === 'active' && newTickCount >= order.deadlineTick) {
+              return { ...order, status: 'failed' as const };
+            }
+            return order;
+          }),
+        }));
 
         // Check if level is complete (all orders resolved)
         const newState = get();
@@ -469,44 +475,82 @@ export const useGameStore = create<GameStore>()(
 
       // Order Actions
       checkOrderCompletion: () => {
-        const state = get();
-
-        for (const order of state.orders) {
-          if (order.status !== 'active') continue;
-
-          let canComplete = true;
-          for (const item of order.items) {
-            const available = countResourceInFactory(state.factory, item.resource);
-            if (available < item.amount) {
-              canComplete = false;
-              break;
-            }
+        // Perform all completion checks and updates atomically to avoid stale state
+        set(state => {
+          // Clone places for tracking consumption across multiple orders
+          const placeTokens: Record<string, number> = {};
+          for (const [id, place] of Object.entries(state.factory.places)) {
+            placeTokens[id] = place.tokens;
           }
 
-          if (canComplete) {
-            // Consume resources from factory
+          const completedOrderIds: string[] = [];
+          let scoreGained = 0;
+
+          // Check each active order
+          for (const order of state.orders) {
+            if (order.status !== 'active') continue;
+
+            // Check if all items can be fulfilled with remaining tokens
+            let canComplete = true;
+            const consumption: { placeId: string; amount: number }[] = [];
+
             for (const item of order.items) {
-              let remaining = item.amount;
-              for (const place of Object.values(state.factory.places)) {
-                if (place.resourceType === item.resource && place.tokens > 0) {
-                  const take = Math.min(place.tokens, remaining);
-                  get().updatePlaceTokens(place.id, place.tokens - take);
-                  remaining -= take;
-                  if (remaining <= 0) break;
+              let needed = item.amount;
+
+              // Find places with this resource and calculate consumption
+              for (const [placeId, place] of Object.entries(state.factory.places)) {
+                if (place.resourceType === item.resource && placeTokens[placeId] > 0) {
+                  const take = Math.min(placeTokens[placeId], needed);
+                  consumption.push({ placeId, amount: take });
+                  needed -= take;
+                  if (needed <= 0) break;
                 }
+              }
+
+              if (needed > 0) {
+                canComplete = false;
+                break;
               }
             }
 
-            // Mark order completed
-            set(state => ({
-              orders: state.orders.map(o =>
-                o.id === order.id ? { ...o, status: 'completed' as const } : o
-              ),
-              levelScore: state.levelScore + order.reward,
-              currency: state.currency + order.reward,
-            }));
+            if (canComplete) {
+              // Apply consumption to our tracking (for subsequent orders)
+              for (const { placeId, amount } of consumption) {
+                placeTokens[placeId] -= amount;
+              }
+              completedOrderIds.push(order.id);
+              scoreGained += order.reward;
+            }
           }
-        }
+
+          // No completions - return unchanged state
+          if (completedOrderIds.length === 0) {
+            return state;
+          }
+
+          // Build updated places with consumed tokens
+          const updatedPlaces: Record<string, Place> = {};
+          for (const [id, place] of Object.entries(state.factory.places)) {
+            updatedPlaces[id] = {
+              ...place,
+              tokens: placeTokens[id],
+            };
+          }
+
+          return {
+            factory: {
+              ...state.factory,
+              places: updatedPlaces,
+            },
+            orders: state.orders.map(o =>
+              completedOrderIds.includes(o.id)
+                ? { ...o, status: 'completed' as const }
+                : o
+            ),
+            levelScore: state.levelScore + scoreGained,
+            currency: state.currency + scoreGained,
+          };
+        });
       },
 
       // Economy Actions

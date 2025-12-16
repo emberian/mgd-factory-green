@@ -43,6 +43,7 @@ export function canStartProcessing(
 
 /**
  * Start processing: consume inputs and begin countdown.
+ * Returns a new graph with immutable updates.
  */
 export function startProcessing(
   graph: FactoryGraph,
@@ -56,11 +57,15 @@ export function startProcessing(
   const events: SimulationEvent[] = [];
   const recipe = getRecipe(transition.recipeId);
 
-  // Consume inputs
+  // Build updated places with consumed tokens
+  const updatedPlaces = { ...graph.places };
   for (const [placeId, amount] of Object.entries(transition.inputs)) {
     const place = graph.places[placeId];
     if (place) {
-      place.tokens -= amount;
+      updatedPlaces[placeId] = {
+        ...place,
+        tokens: place.tokens - amount,
+      };
       events.push({
         type: 'tokens_moved',
         from: placeId,
@@ -71,14 +76,27 @@ export function startProcessing(
     }
   }
 
-  // Start processing countdown
-  transition.processingRemaining = recipe?.duration ?? 1;
+  // Build updated transition with processing countdown
+  const updatedTransition = {
+    ...transition,
+    processingRemaining: recipe?.duration ?? 1,
+  };
 
-  return { graph, events };
+  return {
+    graph: {
+      places: updatedPlaces,
+      transitions: {
+        ...graph.transitions,
+        [transitionId]: updatedTransition,
+      },
+    },
+    events,
+  };
 }
 
 /**
  * Complete processing: produce outputs.
+ * Returns a new graph with immutable updates.
  */
 export function completeProcessing(
   graph: FactoryGraph,
@@ -91,11 +109,15 @@ export function completeProcessing(
 
   const events: SimulationEvent[] = [];
 
-  // Produce outputs
+  // Build updated places with produced tokens
+  const updatedPlaces = { ...graph.places };
   for (const [placeId, amount] of Object.entries(transition.outputs)) {
     const place = graph.places[placeId];
     if (place) {
-      place.tokens += amount;
+      updatedPlaces[placeId] = {
+        ...place,
+        tokens: place.tokens + amount,
+      };
       events.push({
         type: 'tokens_moved',
         from: transitionId,
@@ -112,11 +134,18 @@ export function completeProcessing(
     recipeId: transition.recipeId,
   });
 
-  return { graph, events };
+  return {
+    graph: {
+      ...graph,
+      places: updatedPlaces,
+    },
+    events,
+  };
 }
 
 /**
  * Execute one tick of the simulation.
+ * Returns a new graph with immutable updates.
  *
  * Processing model:
  * 1. Decrement processing counters
@@ -125,29 +154,49 @@ export function completeProcessing(
  */
 export function tick(graph: FactoryGraph): { graph: FactoryGraph; events: SimulationEvent[] } {
   const allEvents: SimulationEvent[] = [];
+  let currentGraph = graph;
 
   // Step 1 & 2: Decrement counters and complete finished transitions
-  for (const transition of Object.values(graph.transitions)) {
-    if (transition.processingRemaining > 0) {
-      transition.processingRemaining--;
+  const updatedTransitions: Record<string, Transition> = {};
+  const completedTransitionIds: string[] = [];
 
-      // If just finished, produce outputs
-      if (transition.processingRemaining === 0) {
-        const { events } = completeProcessing(graph, transition.id);
-        allEvents.push(...events);
+  for (const [id, transition] of Object.entries(currentGraph.transitions)) {
+    if (transition.processingRemaining > 0) {
+      const newRemaining = transition.processingRemaining - 1;
+      updatedTransitions[id] = {
+        ...transition,
+        processingRemaining: newRemaining,
+      };
+      if (newRemaining === 0) {
+        completedTransitionIds.push(id);
       }
+    } else {
+      updatedTransitions[id] = transition;
     }
+  }
+
+  currentGraph = {
+    places: currentGraph.places,
+    transitions: updatedTransitions,
+  };
+
+  // Complete transitions that just finished (produce outputs)
+  for (const transitionId of completedTransitionIds) {
+    const result = completeProcessing(currentGraph, transitionId);
+    currentGraph = result.graph;
+    allEvents.push(...result.events);
   }
 
   // Step 3: Start processing on idle transitions with available inputs
-  for (const transition of Object.values(graph.transitions)) {
-    if (canStartProcessing(transition, graph.places)) {
-      const { events } = startProcessing(graph, transition.id);
-      allEvents.push(...events);
+  for (const transition of Object.values(currentGraph.transitions)) {
+    if (canStartProcessing(transition, currentGraph.places)) {
+      const result = startProcessing(currentGraph, transition.id);
+      currentGraph = result.graph;
+      allEvents.push(...result.events);
     }
   }
 
-  return { graph, events: allEvents };
+  return { graph: currentGraph, events: allEvents };
 }
 
 /**

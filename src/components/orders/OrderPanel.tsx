@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useRef, useEffect } from 'react';
 import { useGameStore } from '../../state/gameStore';
 import { CHARACTERS, getRandomFlavorText } from '../../data/characters';
 import { RESOURCES } from '../../data/resources';
@@ -10,17 +10,35 @@ export function OrderPanel() {
 
   const completedOrders = orders.filter(o => o.status === 'completed');
 
-  // Generate stable flavor texts for each order (memoized by order IDs and statuses)
-  const flavorTexts = useMemo(() => {
-    const texts: Record<string, string> = {};
+  // Store flavor texts in a ref to persist across renders
+  // Only regenerate a specific order's text when ITS status changes
+  const flavorTextsRef = useRef<Record<string, { status: string; text: string }>>({});
+
+  // Update flavor texts only for orders whose status changed
+  useEffect(() => {
     for (const order of orders) {
-      const type = order.status === 'completed' ? 'complete' : 'order';
-      texts[order.id] = getRandomFlavorText(order.characterId, type);
+      const cached = flavorTextsRef.current[order.id];
+      if (!cached || cached.status !== order.status) {
+        const type = order.status === 'completed' ? 'complete' : 'order';
+        flavorTextsRef.current[order.id] = {
+          status: order.status,
+          text: getRandomFlavorText(order.characterId, type),
+        };
+      }
     }
-    return texts;
-    // Only regenerate when order list changes or status changes
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orders.map(o => `${o.id}:${o.status}`).join(',')]);
+    // Clean up old orders no longer in the list
+    const orderIds = new Set(orders.map(o => o.id));
+    for (const id of Object.keys(flavorTextsRef.current)) {
+      if (!orderIds.has(id)) {
+        delete flavorTextsRef.current[id];
+      }
+    }
+  }, [orders]);
+
+  const flavorTexts: Record<string, string> = {};
+  for (const [id, entry] of Object.entries(flavorTextsRef.current)) {
+    flavorTexts[id] = entry.text;
+  }
 
   return (
     <div className="bg-forest-700 border-b border-forest-600">
